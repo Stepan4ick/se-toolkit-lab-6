@@ -350,6 +350,8 @@ Always include the source reference (file path) when answering from files. For A
 
 When using query_api, always examine the `status_code` field in the response — it tells you the HTTP status code returned by the server.
 
+IMPORTANT: After gathering information, provide a complete final answer. Do not say "let me continue" — instead, summarize what you found and give the answer directly.
+
 Think step by step. Call tools iteratively until you have enough information to answer."""
 
     messages = [
@@ -358,7 +360,7 @@ Think step by step. Call tools iteratively until you have enough information to 
     ]
 
     tool_calls_log = []
-    max_iterations = 10  # Limit tool calls to prevent infinite loops
+    max_iterations = 15  # Limit tool calls to prevent infinite loops (increased for complex questions)
     iteration = 0
 
     while iteration < max_iterations:
