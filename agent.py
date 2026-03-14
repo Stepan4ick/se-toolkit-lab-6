@@ -341,16 +341,19 @@ You have three tools:
 
 When answering questions:
 - For wiki/documentation questions: use `list_files` to find relevant files, then `read_file` to get details
-- For source code questions: use `read_file` to read the relevant source files
+- For source code questions: use `read_file` to read the relevant source files  
 - For data-dependent questions (counts, statistics): use `query_api` with use_auth=true (default) to get current data
-- For API behavior questions about authentication (e.g., "without authentication", "without API key"): use `query_api` with use_auth=false to test unauthenticated access
+- For API behavior questions about authentication: use `query_api` with use_auth=false to test unauthenticated access
 - For bug diagnosis: first use `query_api` to see the error, then `read_file` to examine the source code
 
-Always include the source reference (file path) when answering from files. For API data questions, the source is the API endpoint.
+IMPORTANT: When you have found the answer, STOP calling tools and provide the final answer immediately.
+- Do NOT say "let me check", "let me look at", "I need to examine more" — just give the answer
+- Once you see the information you need (e.g., "from fastapi import FastAPI"), stop and answer
+- Your goal is to answer the question, not to read all files
 
-When using query_api, always examine the `status_code` field in the response — it tells you the HTTP status code returned by the server.
+When using query_api, always examine the `status_code` field in the response.
 
-Think step by step. Call tools iteratively until you have enough information to answer."""
+Think step by step, but stop when you have the answer."""
 
     messages = [
         {"role": "system", "content": system_prompt},
