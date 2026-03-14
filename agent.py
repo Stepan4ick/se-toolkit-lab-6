@@ -358,7 +358,7 @@ Think step by step. Call tools iteratively until you have enough information to 
     ]
 
     tool_calls_log = []
-    max_iterations = 10
+    max_iterations = 10  # Limit tool calls to prevent infinite loops
     iteration = 0
 
     while iteration < max_iterations:
