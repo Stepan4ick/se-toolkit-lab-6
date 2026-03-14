@@ -15,7 +15,7 @@ def test_agent_outputs_valid_json() -> None:
         ["uv", "run", str(agent_path), test_question],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=120,  # Increased timeout for LLM calls
     )
 
     # Check exit code
@@ -45,7 +45,7 @@ def test_agent_uses_read_file_for_wiki_question() -> None:
         ["uv", "run", str(agent_path), test_question],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=120,  # Increased timeout for LLM calls
     )
 
     # Check exit code
@@ -80,7 +80,7 @@ def test_agent_uses_list_files_for_directory_question() -> None:
         ["uv", "run", str(agent_path), test_question],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=120,  # Increased timeout for LLM calls
     )
 
     # Check exit code
@@ -99,3 +99,72 @@ def test_agent_uses_list_files_for_directory_question() -> None:
     # Check that list_files was used
     tool_names = [call["tool"] for call in output["tool_calls"]]
     assert "list_files" in tool_names, f"Expected list_files in tool_calls, got: {tool_names}"
+
+
+def test_agent_uses_read_file_for_source_code_question() -> None:
+    """Test that agent uses read_file to find what framework the backend uses."""
+    agent_path = Path(__file__).parent.parent / "agent.py"
+    test_question = "What Python web framework does the backend use?"
+
+    result = subprocess.run(
+        ["uv", "run", str(agent_path), test_question],
+        capture_output=True,
+        text=True,
+        timeout=120,  # Increased timeout for LLM calls
+    )
+
+    # Check exit code
+    assert result.returncode == 0, f"Agent failed: {result.stderr}"
+
+    # Parse stdout as JSON
+    try:
+        output = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        raise AssertionError(f"Invalid JSON output: {e}\nStdout: {result.stdout}")
+
+    # Check required fields
+    assert "answer" in output, "Missing 'answer' field in output"
+    assert "tool_calls" in output, "Missing 'tool_calls' field in output"
+
+    # Check that read_file was used (to read backend source code)
+    tool_names = [call["tool"] for call in output["tool_calls"]]
+    assert "read_file" in tool_names, f"Expected read_file in tool_calls, got: {tool_names}"
+
+    # Check that answer mentions FastAPI
+    assert "FastAPI" in output["answer"] or "fastapi" in output["answer"], \
+        f"Expected answer to mention FastAPI, got: {output['answer']}"
+
+
+def test_agent_uses_query_api_for_data_question() -> None:
+    """Test that agent uses query_api to get data from the backend."""
+    agent_path = Path(__file__).parent.parent / "agent.py"
+    test_question = "How many items are in the database?"
+
+    result = subprocess.run(
+        ["uv", "run", str(agent_path), test_question],
+        capture_output=True,
+        text=True,
+        timeout=120,  # Increased timeout for LLM calls
+    )
+
+    # Check exit code
+    assert result.returncode == 0, f"Agent failed: {result.stderr}"
+
+    # Parse stdout as JSON
+    try:
+        output = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        raise AssertionError(f"Invalid JSON output: {e}\nStdout: {result.stdout}")
+
+    # Check required fields
+    assert "answer" in output, "Missing 'answer' field in output"
+    assert "tool_calls" in output, "Missing 'tool_calls' field in output"
+
+    # Check that query_api was used
+    tool_names = [call["tool"] for call in output["tool_calls"]]
+    assert "query_api" in tool_names, f"Expected query_api in tool_calls, got: {tool_names}"
+
+    # Check that the answer contains a number
+    import re
+    numbers = re.findall(r'\d+', output["answer"])
+    assert len(numbers) > 0, f"Expected answer to contain a number, got: {output['answer']}"
