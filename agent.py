@@ -336,23 +336,25 @@ def call_llm(question: str, config: dict[str, str], project_root: Path) -> dict:
 
 You have three tools:
 1. `list_files` - Discover what files exist in a directory
-2. `read_file` - Read specific files to find information
+2. `read_file` - Read specific files to find information  
 3. `query_api` - Query the backend API to get data or test endpoints. Returns JSON with `status_code` and `body`.
 
 When answering questions:
 - For wiki/documentation questions: use `list_files` to find relevant files, then `read_file` to get details
 - For source code questions: use `read_file` to read the relevant source files
 - For data-dependent questions (counts, statistics): use `query_api` with use_auth=true (default) to get current data
-- For API behavior questions about authentication (e.g., "without authentication", "without API key"): use `query_api` with use_auth=false to test unauthenticated access
+- For API behavior questions about authentication: use `query_api` with use_auth=false
 - For bug diagnosis: first use `query_api` to see the error, then `read_file` to examine the source code
 
-Always include the source reference (file path) when answering from files. For API data questions, the source is the API endpoint.
+CRITICAL RULES:
+1. After reading 3-4 files, STOP and provide a complete final answer
+2. NEVER say "let me check", "let me continue", or "I need to read more" — just answer with what you have
+3. For "explain" questions: give your best answer based on files you've read, even if incomplete
+4. List what you found and stop — do not try to read everything
 
-When using query_api, always examine the `status_code` field in the response — it tells you the HTTP status code returned by the server.
+When using query_api, always examine the `status_code` field in the response.
 
-IMPORTANT: After gathering information, provide a complete final answer. Do not say "let me continue" — instead, summarize what you found and give the answer directly.
-
-Think step by step. Call tools iteratively until you have enough information to answer."""
+Provide the final answer immediately after gathering basic information. Do not over-research."""
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -360,7 +362,7 @@ Think step by step. Call tools iteratively until you have enough information to 
     ]
 
     tool_calls_log = []
-    max_iterations = 15  # Limit tool calls to prevent infinite loops (increased for complex questions)
+    max_iterations = 6  # Limit tool calls - agent should answer after 3-4 files
     iteration = 0
 
     while iteration < max_iterations:
