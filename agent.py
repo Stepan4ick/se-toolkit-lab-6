@@ -89,3 +89,265 @@ TOOLS = {
     "list_files": tool_list_files,
     "query_api": tool_query_api,
 }
+
+
+
+TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file from the project repository. Returns file contents as a string.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path from project root (e.g., 'wiki/git-workflow.md')"}
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "List files and directories at a given path in the project repository.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative directory path from project root (e.g., 'wiki' or 'backend')"}       
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_api",
+            "description": "Send an HTTP request to the deployed backend LMS API. Use this for data queries (item counts, scores, analytics) and system status checks. The API is at the base URL with endpoints like /items/, /analytics/completion-rate, etc. By default requests are authenticated with the API key. Set authenticated=false to test unauthenticated behavior.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "method": {"type": "string", "description": "HTTP method (GET, POST, PUT, DELETE)", "enum": ["GET", "POST", "PUT", "DELETE"]},
+                    "path": {"type": "string", "description": "API endpoint path (e.g., '/items/', '/analytics/completion-rate')"},
+                    "body": {"type": "string", "description": "Optional JSON request body"},
+                    "authenticated": {"type": "boolean", "description": "Whether to send the API key. Default true. Set false to test unauthenticated requests.", "default": True},
+                },
+                "required": ["method", "path"],
+            },
+        },
+    },
+]
+
+SYSTEM_PROMPT = """\
+You are a helpful agent for a Learning Management Service (LMS) project. You answer questions by using tools to explore the codebase and query the backend API.
+
+## Project structure
+- wiki/ — documentation files (many files — see topic map below)
+- backend/app/ — FastAPI backend
+- backend/app/routers/ — API routers: items.py, learners.py, interactions.py, analytics.py, pipeline.py
+- Dockerfile, docker-compose.yml, Caddyfile — deployment config files in the project root
+
+## Wiki topic map (use these directly — do NOT list_files first)
+- Docker (run, stop, clean up, prune) → wiki/docker.md
+- Swagger UI / API authorization / Bearer token → wiki/swagger.md
+- Git workflow (branches, PRs, commits) → wiki/git-workflow.md
+- GitHub (fork, issues, collaborators, branch protection) → wiki/github.md
+- SSH / connecting to VM → wiki/ssh.md
+- VM setup / info → wiki/vm.md
+- PostgreSQL / database → wiki/postgresql.md
+- Python / uv / pyproject → wiki/python.md
+- Unknown topic → list_files("wiki") to find the right file, then read_file it
+
+## Known API endpoints (all require Bearer auth unless noted)
+- GET /items/ — list all items
+- GET /learners/ — list all learners
+- GET /interactions/ — list interaction logs
+- GET /analytics/scores?lab=lab-04 — score distribution histogram
+- GET /analytics/pass-rates?lab=lab-04 — per-task pass rates
+- GET /analytics/timeline?lab=lab-04 — submissions per day
+- GET /analytics/groups?lab=lab-04 — per-group performance
+- GET /analytics/completion-rate?lab=lab-04 — completion rate for a lab
+- GET /analytics/top-learners?lab=lab-04 — top learners for a lab
+- POST /pipeline/sync — run ETL sync
+
+
+## Strategy
+1. Wiki/documentation questions → read_file the exact wiki file from the topic map above. Set "source" to the wiki file path (e.g., "wiki/docker.md#clean-up-docker").
+2. "Read the [file]" questions → read_file that specific file directly (e.g., "Read the Dockerfile" → read_file("Dockerfile")).
+3. Codebase/architecture questions → read_file on the relevant source files.
+4. Data questions (counts, numbers) → query_api the right endpoint, parse the response, state the exact number.
+5. Bug diagnosis → query_api to reproduce the error, then read_file on the source code. Check ALL endpoints in that file.
+6. Comparison/reasoning questions → read the relevant source files, then give a structured answer.
+
+## Bug Detection Checklist
+When asked about bugs or risky operations in code, systematically check for:
+- **Division operations**: Look for `/` or division that could cause divide-by-zero errors (e.g., `x / total` where total could be 0)        
+- **None-unsafe operations**: Sorting by values that could be None, accessing attributes on potentially None objects
+- **Missing error handling**: Code that doesn't catch exceptions or handle edge cases
+- **Type mismatches**: Operations that assume a type without checking
+
+## Error Handling Comparison
+When comparing error handling between components:
+- **ETL pipeline**: Uses `raise_for_status()` which throws HTTPError on bad responses; exceptions propagate up; all-or-nothing approach      
+- **API routers**: Return empty lists `[]` or default values on edge cases; graceful degradation; never crash on bad input
+
+## Rules
+- Be concise and direct. State facts, not reasoning steps.
+- When asked "how many", always give a specific number (e.g., "There are 42 learners").
+- For wiki questions, set "source" to the wiki file path with section anchor.
+- When asked about bugs or errors, examine EVERY function/endpoint in the file — do not stop at the first issue.
+- When comparing two things, explicitly name and describe both sides.
+- Never guess. Always use tools to verify.
+- Give your final answer as soon as you have enough information.
+"""
+
+
+# ---------------------------------------------------------------------------
+# LLM interaction
+# ---------------------------------------------------------------------------
+
+def _call_llm(messages: list[dict]) -> dict:
+    """Call the LLM and return the response message."""
+    url = f"{LLM_API_BASE}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {LLM_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": LLM_MODEL,
+        "messages": messages,
+        "tools": TOOL_SCHEMAS,
+        "temperature": 0,
+    }
+    with httpx.Client(timeout=60) as client:
+        resp = client.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+    return data["choices"][0]["message"]
+
+
+def _execute_tool(name: str, arguments: dict) -> str:
+    """Execute a tool by name with the given arguments."""
+    fn = TOOLS.get(name)
+    if not fn:
+        return f"Error: unknown tool '{name}'"
+    try:
+        return fn(**arguments)
+    except TypeError as e:
+        return f"Error calling {name}: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Agent loop
+# ---------------------------------------------------------------------------
+
+def _extract_source(answer: str, tool_calls: list[dict]) -> str | None:
+    """Pick the best source file from tool calls.
+
+
+    Heuristic: prefer wiki/ files mentioned in the answer, then fall back
+    to the last read_file path, then None.
+    """
+    read_paths = [
+        tc["args"].get("path", "")
+        for tc in tool_calls
+        if tc["tool"] == "read_file" and tc["args"].get("path")
+    ]
+    if not read_paths:
+        return None
+    # If the answer mentions a specific file path, prefer that
+    answer_lower = answer.lower()
+    for p in read_paths:
+        if p.lower() in answer_lower:
+            return p
+    # Prefer wiki files for documentation questions
+    wiki_paths = [p for p in read_paths if p.startswith("wiki/")]
+    if wiki_paths:
+        return wiki_paths[-1]
+    return read_paths[-1]
+
+
+def run_agent(question: str) -> dict:
+    """Run the agentic loop and return the final JSON output."""
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": question},
+    ]
+    all_tool_calls = []
+    max_iterations = 12
+
+    for i in range(max_iterations):
+        print(f"[iteration {i+1}]", file=sys.stderr)
+        response_msg = _call_llm(messages)
+
+        tool_calls = response_msg.get("tool_calls")
+        if not tool_calls:
+            # Final answer
+            answer = (response_msg.get("content") or "").strip()
+            # Extract source: prefer the most relevant read_file path
+            # (wiki file for wiki questions, last read_file otherwise)
+            source = _extract_source(answer, all_tool_calls)
+            # Strip bulky result text — checker only needs tool names
+            compact_calls = [
+                {"tool": tc["tool"], "args": tc["args"]}
+                for tc in all_tool_calls
+            ]
+            return {
+                "answer": answer,
+                "source": source,
+                "tool_calls": compact_calls,
+            }
+
+        # Process tool calls
+        messages.append(response_msg)
+        for tc in tool_calls:
+            fn_name = tc["function"]["name"]
+            try:
+                fn_args = json.loads(tc["function"]["arguments"])
+            except json.JSONDecodeError:
+                fn_args = {}
+
+            print(f"  tool: {fn_name}({fn_args})", file=sys.stderr)
+            result = _execute_tool(fn_name, fn_args)
+
+            all_tool_calls.append({
+                "tool": fn_name,
+                "args": fn_args,
+            })
+            # Cap tool output to avoid filling LLM context window
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc["id"],
+                "content": result[:15000],
+            })
+
+    # Max iterations reached
+    compact_calls = [
+        {"tool": tc["tool"], "args": tc["args"]}
+        for tc in all_tool_calls
+    ]
+    return {
+        "answer": "Could not determine answer within iteration limit.",
+        "source": None,
+        "tool_calls": compact_calls,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: agent.py <question>", file=sys.stderr)
+        sys.exit(1)
+
+    question = sys.argv[1]
+    try:
+        result = run_agent(question)
+        print(json.dumps(result))
+    except Exception as e:
+        print(f"Agent error: {e}", file=sys.stderr)
+        sys.exit(1)
