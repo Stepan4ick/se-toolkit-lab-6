@@ -134,13 +134,13 @@ def get_tool_schemas() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "read_file",
-                "description": "Read contents of a file from the project repository. Use this to find specific information in documentation or source code.",
+                "description": "Read contents of a file from the project repository. Use this to find specific information in documentation or source code. Supports .md, .py, .yml, .json, and other text files.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "path": {
                             "type": "string",
-                            "description": "Relative path from project root (e.g., 'wiki/git-workflow.md')"
+                            "description": "Relative path from project root (e.g., 'wiki/git-workflow.md' or 'backend/routers/items.py')"
                         }
                     },
                     "required": ["path"]
