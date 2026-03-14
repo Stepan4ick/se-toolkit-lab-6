@@ -340,21 +340,22 @@ You have three tools:
 3. `query_api` - Query the backend API to get data or test endpoints. Returns JSON with `status_code` and `body`.
 
 When answering questions:
-- For wiki/documentation questions: use `list_files` to find relevant files, then `read_file` to get details
+- For wiki/documentation questions: use `list_files` to discover files, then `read_file` to get details
 - For source code questions: use `read_file` to read the relevant source files
-- For data-dependent questions (counts, statistics): use `query_api` with use_auth=true (default) to get current data
+- For data-dependent questions (counts, statistics): use `query_api` with use_auth=true to get current data
 - For API behavior questions about authentication: use `query_api` with use_auth=false
 - For bug diagnosis: first use `query_api` to see the error, then `read_file` to examine the source code
 
-CRITICAL RULES:
-1. After reading 3-4 files, STOP and provide a complete final answer
-2. NEVER say "let me check", "let me continue", or "I need to read more" — just answer with what you have
-3. For "explain" questions: give your best answer based on files you've read, even if incomplete
-4. List what you found and stop — do not try to read everything
+RESPONDING RULES:
+- When you find the answer, STOP using tools and provide the final answer immediately
+- Do not read more files once you have enough information
+- Never say "let me continue checking" — if you have the answer, give it
+- For "list all" questions: after listing files, read each one and summarize their purposes
+- For "explain" questions: read the key files (2-4 files) and explain based on what you found
 
 When using query_api, always examine the `status_code` field in the response.
 
-Provide the final answer immediately after gathering basic information. Do not over-research."""
+Your goal is to answer the question accurately, not to read all files. Stop when you have the answer."""
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -362,7 +363,7 @@ Provide the final answer immediately after gathering basic information. Do not o
     ]
 
     tool_calls_log = []
-    max_iterations = 6  # Limit tool calls - agent should answer after 3-4 files
+    max_iterations = 10  # Limit tool calls to prevent infinite loops
     iteration = 0
 
     while iteration < max_iterations:
