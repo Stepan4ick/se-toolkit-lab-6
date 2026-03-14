@@ -336,26 +336,21 @@ def call_llm(question: str, config: dict[str, str], project_root: Path) -> dict:
 
 You have three tools:
 1. `list_files` - Discover what files exist in a directory
-2. `read_file` - Read specific files to find information  
+2. `read_file` - Read specific files to find information
 3. `query_api` - Query the backend API to get data or test endpoints. Returns JSON with `status_code` and `body`.
 
 When answering questions:
-- For wiki/documentation questions: use `list_files` to discover files, then `read_file` to get details
+- For wiki/documentation questions: use `list_files` to find relevant files, then `read_file` to get details
 - For source code questions: use `read_file` to read the relevant source files
-- For data-dependent questions (counts, statistics): use `query_api` with use_auth=true to get current data
-- For API behavior questions about authentication: use `query_api` with use_auth=false
+- For data-dependent questions (counts, statistics): use `query_api` with use_auth=true (default) to get current data
+- For API behavior questions about authentication (e.g., "without authentication", "without API key"): use `query_api` with use_auth=false to test unauthenticated access
 - For bug diagnosis: first use `query_api` to see the error, then `read_file` to examine the source code
 
-RESPONDING RULES:
-- When you find the answer, STOP using tools and provide the final answer immediately
-- Do not read more files once you have enough information
-- Never say "let me continue checking" — if you have the answer, give it
-- For "list all" questions: after listing files, read each one and summarize their purposes
-- For "explain" questions: read the key files (2-4 files) and explain based on what you found
+Always include the source reference (file path) when answering from files. For API data questions, the source is the API endpoint.
 
-When using query_api, always examine the `status_code` field in the response.
+When using query_api, always examine the `status_code` field in the response — it tells you the HTTP status code returned by the server.
 
-Your goal is to answer the question accurately, not to read all files. Stop when you have the answer."""
+Think step by step. Call tools iteratively until you have enough information to answer."""
 
     messages = [
         {"role": "system", "content": system_prompt},
