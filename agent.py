@@ -340,20 +340,42 @@ You have three tools:
 3. `query_api` - Query the backend API to get data or test endpoints. Returns JSON with `status_code` and `body`.
 
 When answering questions:
-- For wiki/documentation questions: use `list_files` to find relevant files, then `read_file` to get details
-- For source code questions: use `read_file` to read the relevant source files  
-- For data-dependent questions (counts, statistics): use `query_api` with use_auth=true (default) to get current data
-- For API behavior questions about authentication: use `query_api` with use_auth=false to test unauthenticated access
-- For bug diagnosis: first use `query_api` to see the error, then `read_file` to examine the source code
 
-IMPORTANT: When you have found the answer, STOP calling tools and provide the final answer immediately.
-- Do NOT say "let me check", "let me look at", "I need to examine more" — just give the answer
-- Once you see the information you need (e.g., "from fastapi import FastAPI"), stop and answer
-- Your goal is to answer the question, not to read all files
+**Wiki/Documentation questions:**
+- Use `list_files` to find relevant files, then `read_file` to get details
+
+**Source code questions:**
+- Use `read_file` to read the relevant source files
+
+**Data-dependent questions (counts, statistics):**
+- Use `query_api` with use_auth=true to get current data and count results
+
+**API behavior questions:**
+- Use `query_api` with use_auth=false to test unauthenticated access
+
+**Bug diagnosis questions:**
+- First use `query_api` to see the error
+- Then `read_file` to examine the source code
+- Look for: division operations (ZeroDivisionError), sorting with None (TypeError), missing null checks
+
+**Architecture questions:**
+- Read docker-compose.yml, Dockerfile, Caddyfile, main.py
+- Trace the request path: Browser → Caddy → FastAPI → Router → Database → Response
+
+**Comparison questions:**
+- Read both files being compared
+- Identify differences in error handling, patterns, approaches
+
+IMPORTANT RULES:
+- When you find the answer, STOP and provide the final answer immediately
+- Do NOT say "let me check more" — give the answer with what you have
+- For "how many" questions: count the items in the API response
+- For bug questions: identify the specific line and explain the fix
+- For architecture: trace through all components step by step
 
 When using query_api, always examine the `status_code` field in the response.
 
-Think step by step, but stop when you have the answer."""
+Your goal is to answer accurately. Stop when you have enough information."""
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -373,14 +395,22 @@ Think step by step, but stop when you have the answer."""
             "messages": messages,
             "tools": get_tool_schemas(),
             "tool_choice": "auto",
-            "temperature": 0.7,
+            "temperature": 0.3,  # Lower temperature for more focused responses
         }
 
         print(f"Calling LLM at {url}...", file=sys.stderr)
 
-        with httpx.Client(timeout=60.0) as client:
-            response = client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
+        try:
+            with httpx.Client(timeout=60.0) as client:
+                response = client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+        except httpx.HTTPError as e:
+            print(f"LLM API error: {e}", file=sys.stderr)
+            return {
+                "answer": f"Error calling LLM: {e}",
+                "source": "",
+                "tool_calls": tool_calls_log
+            }
 
         data = response.json()
 
@@ -389,7 +419,11 @@ Think step by step, but stop when you have the answer."""
         except (KeyError, IndexError) as e:
             print(f"Error: Unexpected API response format: {e}", file=sys.stderr)
             print(f"Response: {data}", file=sys.stderr)
-            sys.exit(1)
+            return {
+                "answer": "Error parsing LLM response",
+                "source": "",
+                "tool_calls": tool_calls_log
+            }
 
         # Check for tool calls
         tool_calls = msg.get("tool_calls")
