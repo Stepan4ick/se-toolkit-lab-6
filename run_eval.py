@@ -96,11 +96,14 @@ def _fetch_question(api_url: str, auth: str, lab: str, index: int):
 def _run_agent(question: str, timeout: int = 60):
     """Run agent.py with the question. Returns (answer_dict, error_msg)."""
     try:
+        # Use uv run to ensure proper environment and encoding
         result = subprocess.run(
-            [sys.executable, "agent.py", question],
+            ["uv", "run", "agent.py", question],
             capture_output=True,
             text=True,
             timeout=timeout,
+            encoding="utf-8",
+            errors="replace",  # Replace invalid characters instead of crashing
         )
     except subprocess.TimeoutExpired:
         return None, "Agent timed out (60s)"
